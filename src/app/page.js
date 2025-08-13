@@ -12,6 +12,12 @@ export default function Home() {
           height={38}
           priority
         />
+        <div className="flex gap-3">
+          <a href="/api/auth/login" className="underline">Login</a>
+          <a href="/api/auth/logout" className="underline">Logout</a>
+          <a href="/admin" className="underline">Admin Dashboard</a>
+          <a href="/worker" className="underline">Worker Dashboard</a>
+        </div>
         <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
           <li className="mb-2 tracking-[-.01em]">
             Get started by editing{" "}
