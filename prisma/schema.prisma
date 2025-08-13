@@ -1,0 +1,78 @@
+// Prisma schema for healthcare worker attendance app
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Roles for access control
+enum Role {
+  ADMIN
+  CAREWORKER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  auth0Id   String   @unique
+  email     String   @unique
+  name      String?
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shifts    Shift[]
+  analytics Analytics[]
+
+  @@index([role])
+}
+
+model Shift {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clockInAt         DateTime
+  clockInLat        Float
+  clockInLng        Float
+  clockInNote       String?
+  clockOutAt        DateTime?
+  clockOutLat       Float?
+  clockOutLng       Float?
+  clockOutNote      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId, clockInAt])
+  @@index([clockOutAt])
+}
+
+// Location perimeter for geofencing (admin-configured)
+model Location {
+  id        String   @id @default(cuid())
+  name      String?
+  latitude  Float
+  longitude Float
+  radiusKm  Float     // geofence radius in kilometers
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Daily aggregated analytics per user (can be recomputed)
+model Analytics {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date         DateTime // UTC date representing the day
+  totalHours   Float    @default(0)
+  shiftCount   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([date])
+}
