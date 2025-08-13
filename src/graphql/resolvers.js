@@ -1,6 +1,6 @@
 import { GraphQLDateTime } from 'graphql-scalars'
-import prisma from '@/src/lib/prisma'
-import { haversineKm } from '@/src/lib/geo'
+import prisma from '@/lib/prisma'
+import { haversineKm } from '@/lib/geo'
 import { getSession } from '@auth0/nextjs-auth0/edge'
 
 async function getActiveLocation() {

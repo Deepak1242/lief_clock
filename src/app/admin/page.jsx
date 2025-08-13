@@ -1,5 +1,5 @@
 "use client";
-import AdminDashboard from "@/src/components/AdminDashboard";
+import AdminDashboard from "@/components/AdminDashboard";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { Spin, Typography, Alert } from "antd";
 

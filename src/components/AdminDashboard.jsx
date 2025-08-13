@@ -1,7 +1,7 @@
 "use client";
 import { useQuery, useMutation } from "@apollo/client";
 import { Button, Card, Col, Flex, Form, Input, InputNumber, Row, Table, Typography, message } from "antd";
-import { CURRENTLY_CLOCKED_IN, LIST_LOCATIONS, SET_ACTIVE_LOCATION, UPSERT_LOCATION, USERS, DELETE_USER, PROMOTE_USER, DASHBOARD_STATS } from "@/src/graphql/operations";
+import { CURRENTLY_CLOCKED_IN, LIST_LOCATIONS, SET_ACTIVE_LOCATION, UPSERT_LOCATION, USERS, DELETE_USER, PROMOTE_USER, DASHBOARD_STATS } from "@/graphql/operations";
 import { useEffect, useMemo, useState } from "react";
 import { Line } from "react-chartjs-2";
 import { Chart as ChartJS, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend } from "chart.js";

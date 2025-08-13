@@ -13,7 +13,7 @@ export default function Home() {
           priority
         />
         <div className="flex gap-3">
-          <a href="/api/auth/login" className="underline">Login</a>
+          <a href="/api/auth/login?returnTo=/post-login" className="underline">Login</a>
           <a href="/api/auth/logout" className="underline">Logout</a>
           <a href="/admin" className="underline">Admin Dashboard</a>
           <a href="/worker" className="underline">Worker Dashboard</a>

@@ -1,5 +1,5 @@
 "use client";
-import WorkerDashboard from "@/src/components/WorkerDashboard";
+import WorkerDashboard from "@/components/WorkerDashboard";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { Alert, Spin } from "antd";
 

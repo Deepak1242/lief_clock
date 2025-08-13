@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@apollo/client";
-import { ANALYTICS_ME, CLOCK_IN, CLOCK_OUT, LIST_LOCATIONS, ME, MY_SHIFTS } from "@/src/graphql/operations";
+import { ANALYTICS_ME, CLOCK_IN, CLOCK_OUT, LIST_LOCATIONS, ME, MY_SHIFTS } from "@/graphql/operations";
 import { Button, Card, Col, Flex, Form, Input, Row, Space, Statistic, Table, Tag, Tooltip, message } from "antd";
 
 function useGeolocation(enabled) {
