@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: "Lief Clock",
   description: "Healthcare worker attendance",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({ children }) {
