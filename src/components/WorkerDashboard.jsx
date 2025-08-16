@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, isValidElement, cloneElement } from "react";
 import { useMutation, useQuery } from "@apollo/client";
 import { CLOCK_IN, CLOCK_OUT, LIST_LOCATIONS, ME, MY_SHIFTS } from "@/graphql/operations";
+import { useOfflineClockIn } from "@/hooks/useOfflineClockIn";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -137,6 +138,44 @@ const colorMap = {
   purple: { bg: 'bg-purple-50', text: 'text-purple-500' },
   // Add more colors as needed
   default: { bg: 'bg-gray-50', text: 'text-gray-500' }
+};
+
+// Offline status indicator
+const OfflineStatusBanner = ({ isOffline, pendingSyncCount, syncStatus, onForceSync }) => {
+  if (!isOffline && pendingSyncCount === 0) return null;
+
+  return (
+    <div className={`mb-4 p-3 rounded-lg border ${
+      isOffline ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'
+    }`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${
+            isOffline ? 'bg-orange-500' : syncStatus === 'syncing' ? 'bg-blue-500 animate-pulse' : 'bg-green-500'
+          }`}></div>
+          <span className="text-sm font-medium">
+            {isOffline ? 'Offline Mode' : 
+             syncStatus === 'syncing' ? 'Syncing...' :
+             pendingSyncCount > 0 ? `${pendingSyncCount} actions pending sync` : 'Online'}
+          </span>
+        </div>
+        {pendingSyncCount > 0 && !isOffline && (
+          <button
+            onClick={onForceSync}
+            disabled={syncStatus === 'syncing'}
+            className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {syncStatus === 'syncing' ? 'Syncing...' : 'Sync Now'}
+          </button>
+        )}
+      </div>
+      {isOffline && (
+        <p className="text-xs text-orange-600 mt-1">
+          Clock in/out actions will be saved locally and synced when you're back online.
+        </p>
+      )}
+    </div>
+  );
 };
 
 // Header section
@@ -578,29 +617,23 @@ export default function WorkerDashboard() {
     fn(text);
   }, []);
 
-  // Clock in/out mutations with loading states
-  const [clockIn, { loading: clockingIn }] = useMutation(CLOCK_IN, { 
-    onCompleted: () => { 
-      notify('success', 'Successfully clocked in');
-      refetchShifts(); 
-    },
-    onError: (err) => {
-      console.error("Clock in error:", err);
-      const errorMessage = err?.message || 'An unknown error occurred';
-      notify('error', `Failed to clock in: ${errorMessage}`);
-    }
-  });
+  // Offline-capable clock in/out functionality
+  const {
+    clockIn: offlineClockIn,
+    clockOut: offlineClockOut,
+    forceSync,
+    isOffline,
+    pendingSyncCount,
+    syncStatus,
+    loading: offlineLoading
+  } = useOfflineClockIn();
+
+  // Legacy mutations for fallback (kept for compatibility)
+  const [clockInMutation, { loading: clockingInLegacy }] = useMutation(CLOCK_IN);
+  const [clockOutMutation, { loading: clockingOutLegacy }] = useMutation(CLOCK_OUT);
   
-  const [clockOut, { loading: clockingOut }] = useMutation(CLOCK_OUT, { 
-    onCompleted: () => { 
-      notify('success', 'Successfully clocked out');
-      refetchShifts(); 
-    },
-    onError: (err) => {
-      console.error("Clock out error:", err);
-      notify('error', `Failed to clock out: ${err.message}`);
-    }
-  });
+  const clockingIn = offlineLoading || clockingInLegacy;
+  const clockingOut = offlineLoading || clockingOutLegacy;
 
   // Derived state
   const activeLoc = useMemo(() => (locData?.locations?.[0]) || null, [locData]);
@@ -691,25 +724,76 @@ export default function WorkerDashboard() {
 
       if (inside !== (prev === "inside")) {
         if (inside && !openShift) {
-          clockIn({ 
-            variables: { 
-              note: `Auto clock-in (${formatDistance(distance)} from work)`, 
-              lat: pos.lat, 
-              lng: pos.lng 
-            } 
-          });
+          handleClockIn(`Auto clock-in (${formatDistance(distance)} from work)`);
         } else if (!inside && openShift) {
-          clockOut({ 
-            variables: { 
-              note: `Auto clock-out (${formatDistance(distance)} from work)`, 
-              lat: pos.lat, 
-              lng: pos.lng 
-            } 
-          });
+          handleClockOut(`Auto clock-out (${formatDistance(distance)} from work)`);
         }
       }
     }
-  }, [pos, activeLoc, openShift, clockIn, clockOut]);
+  }, [pos, activeLoc, openShift]);
+
+  // Clock in/out handlers using offline-capable functions
+  const handleClockIn = useCallback(async (note = manualNote) => {
+    if (!pos) {
+      notify('error', 'Location required for clock in');
+      return;
+    }
+
+    try {
+      const result = await offlineClockIn({
+        note,
+        lat: pos.lat,
+        lng: pos.lng,
+        manualOverride: false
+      });
+
+      if (result.offline) {
+        notify('success', result.fallback ? 
+          'Clock in saved offline (will sync when online)' : 
+          'Clocked in offline (will sync when online)'
+        );
+      } else {
+        notify('success', 'Successfully clocked in');
+        refetchShifts();
+      }
+      
+      setManualNote('');
+    } catch (error) {
+      console.error('Clock in error:', error);
+      notify('error', `Failed to clock in: ${error.message}`);
+    }
+  }, [pos, manualNote, offlineClockIn, notify, refetchShifts]);
+
+  const handleClockOut = useCallback(async (note = manualNote) => {
+    if (!pos) {
+      notify('error', 'Location required for clock out');
+      return;
+    }
+
+    try {
+      const result = await offlineClockOut({
+        note,
+        lat: pos.lat,
+        lng: pos.lng,
+        manualOverride: false
+      });
+
+      if (result.offline) {
+        notify('success', result.fallback ? 
+          'Clock out saved offline (will sync when online)' : 
+          'Clocked out offline (will sync when online)'
+        );
+      } else {
+        notify('success', 'Successfully clocked out');
+        refetchShifts();
+      }
+      
+      setManualNote('');
+    } catch (error) {
+      console.error('Clock out error:', error);
+      notify('error', `Failed to clock out: ${error.message}`);
+    }
+  }, [pos, manualNote, offlineClockOut, notify, refetchShifts]);
 
   // Calculate hours for a shift (exclude ongoing)
   const calculateShiftHours = (shift) => {
@@ -916,46 +1000,7 @@ export default function WorkerDashboard() {
     return (now - start) / (1000 * 60 * 60); // in hours
   }, [openShift]);
 
-  // Handle clock in/out actions
-  const handleClockIn = useCallback(() => {
-    if (!pos) {
-      notify('info', 'Waiting for location...');
-      return;
-    }
-    if (openShift) {
-      notify('info', "You're already clocked in");
-      return;
-    }
-    clockIn({ 
-      variables: { 
-        note: manualNote || `Manual clock-in (${formatDistance(distanceFromWork)} from work)`, 
-        lat: pos.lat, 
-        lng: pos.lng, 
-        manualOverride: true 
-      } 
-    });
-    setManualNote("");
-  }, [pos, openShift, manualNote, clockIn, distanceFromWork, notify]);
-
-  const handleClockOut = useCallback(() => {
-    if (!pos) {
-      notify('info', 'Waiting for location...');
-      return;
-    }
-    if (!openShift) {
-      notify('info', 'No active shift to clock out from');
-      return;
-    }
-    clockOut({ 
-      variables: { 
-        note: manualNote || `Manual clock-out (${formatDistance(distanceFromWork)} from work)`, 
-        lat: pos.lat, 
-        lng: pos.lng, 
-        manualOverride: true 
-      } 
-    });
-    setManualNote("");
-  }, [pos, openShift, manualNote, clockOut, distanceFromWork, notify]);
+  // Removed duplicate handlers - using offline-capable versions above
 
   // Tailwind table renders shift history directly
 
@@ -1001,19 +1046,17 @@ export default function WorkerDashboard() {
   }
 
   return (
-    <div className="p-6 min-h-screen bg-gradient-to-b from-blue-200 via-blue-100 to-transparent relative">
-      {showLocationDialog && (
-        <LocationRequiredDialog onRetry={handleRetryLocation} />
-      )}
-      {showLocationDialog ? null : (
-        <div>
-          <StatusHeader openShift={openShift} formatTime={formatTime} currentTimeText={currentTimeText} />
 
-          {/* Status Cards */}
-          <StatsGrid>
-            <div>
-              <StatCard 
-                title={openShift ? "Current Shift" : "Status"}
+// Render loading state
+if (loading) {
+  return (
+    <div className="p-6 space-y-3">
+      <div className="h-5 bg-gray-200 rounded animate-pulse w-1/3" />
+      <div className="h-40 bg-gray-100 rounded animate-pulse" />
+      <div className="h-64 bg-gray-100 rounded animate-pulse" />
+    </div>
+  );
+}
                 value={openShift ? formatDuration(currentShiftDuration * 60) : "Ready"}
                 icon={<IconClock />}
                 color={openShift ? "blue" : "green"}
