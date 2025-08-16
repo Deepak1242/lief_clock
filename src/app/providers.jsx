@@ -4,6 +4,7 @@ import { setContext } from "@apollo/client/link/context";
 import { SessionProvider } from "next-auth/react";
 import { ConfigProvider, App as AntApp, theme } from "antd";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { OfflineProvider } from "@/components/OfflineProvider";
 
 const httpLink = new HttpLink({ uri: "/api/graphql", credentials: "include" });
 
@@ -28,11 +29,13 @@ export default function Providers({ children }) {
   return (
     <SessionProvider>
       <ApolloProvider client={client}>
-        <AuthProvider>
-          <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
-            <AntApp>{children}</AntApp>
-          </ConfigProvider>
-        </AuthProvider>
+        <OfflineProvider>
+          <AuthProvider>
+            <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
+              <AntApp>{children}</AntApp>
+            </ConfigProvider>
+          </AuthProvider>
+        </OfflineProvider>
       </ApolloProvider>
     </SessionProvider>
   );

@@ -5,7 +5,7 @@
 
 class NetworkStatusManager {
   constructor() {
-    this.isOnline = navigator.onLine;
+    this.isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     this.listeners = new Set();
     this.lastOnlineTime = this.isOnline ? Date.now() : null;
     this.lastOfflineTime = this.isOnline ? null : Date.now();
@@ -14,6 +14,9 @@ class NetworkStatusManager {
   }
 
   init() {
+    // Only initialize on client side
+    if (typeof window === 'undefined') return;
+    
     // Listen for online/offline events
     window.addEventListener('online', this.handleOnline.bind(this));
     window.addEventListener('offline', this.handleOffline.bind(this));
@@ -27,6 +30,20 @@ class NetworkStatusManager {
     this.isOnline = true;
     this.lastOnlineTime = Date.now();
     this.notifyListeners('online');
+    
+    // Trigger automatic sync when coming back online
+    this.triggerAutoSync();
+  }
+
+  async triggerAutoSync() {
+    // Import offlineStorage dynamically to avoid circular dependencies
+    try {
+      const { offlineStorage } = await import('./offlineStorage');
+      console.log('Auto-syncing offline actions...');
+      await offlineStorage.syncOfflineActions();
+    } catch (error) {
+      console.error('Auto-sync failed:', error);
+    }
   }
 
   handleOffline() {
@@ -52,7 +69,7 @@ class NetworkStatusManager {
   }
 
   async checkNetworkConnectivity() {
-    if (!navigator.onLine) {
+    if (typeof navigator === 'undefined' || !navigator.onLine) {
       return false;
     }
 
