@@ -195,7 +195,7 @@ class OfflineSyncManager {
     );
   }
 
-  async forcSync() {
+  async forceSync() {
     if (this.isSyncing) {
       console.log('Sync already in progress');
       return;

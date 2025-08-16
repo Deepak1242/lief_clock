@@ -15,8 +15,8 @@ export function useOfflineClockIn() {
   const [syncStatus, setSyncStatus] = useState('idle'); // idle, syncing, success, error
 
   // Apollo mutations for online operations
-  const [clockInMutation, { loading: clockingInOnline }] = useMutation(CLOCK_IN);
-  const [clockOutMutation, { loading: clockingOutOnline }] = useMutation(CLOCK_OUT);
+  const [clockInMutation] = useMutation(CLOCK_IN);
+  const [clockOutMutation] = useMutation(CLOCK_OUT);
 
   // Update network status
   useEffect(() => {
@@ -63,7 +63,12 @@ export function useOfflineClockIn() {
   const clockIn = useCallback(async ({ note, lat, lng, manualOverride = false }) => {
     const actionData = {
       type: 'CLOCK_IN',
-      data: { note, lat, lng, manualOverride },
+      data: { 
+        note: String(note || ''), 
+        lat: Number(lat || 0), 
+        lng: Number(lng || 0), 
+        manualOverride: Boolean(manualOverride) 
+      },
       timestamp: new Date().toISOString()
     };
 
@@ -110,10 +115,15 @@ export function useOfflineClockIn() {
     }
   }, [isOffline, clockInMutation]);
 
-  const clockOut = useCallback(async ({ note, lat, lng, manualOverride = false }) => {
+  const clockOut = useCallback(async ({ note = '', lat = 0, lng = 0, manualOverride = false } = {}) => {
     const actionData = {
       type: 'CLOCK_OUT',
-      data: { note, lat, lng, manualOverride },
+      data: { 
+        note: String(note || ''), 
+        lat: Number(lat || 0), 
+        lng: Number(lng || 0), 
+        manualOverride: Boolean(manualOverride) 
+      },
       timestamp: new Date().toISOString()
     };
 
@@ -130,18 +140,24 @@ export function useOfflineClockIn() {
             clockOutAt: actionData.timestamp
           }
         },
-        offline: true
+        offline: true,
+        success: true
       };
     } else {
       // Execute online
       try {
         const result = await clockOutMutation({
-          variables: { note, lat, lng, manualOverride }
+          variables: { 
+            note: note || '', 
+            lat: lat || 0, 
+            lng: lng || 0, 
+            manualOverride: manualOverride || false 
+          }
         });
-        return { ...result, offline: false };
+        return { ...result, offline: false, success: true };
       } catch (error) {
         // If online request fails, store offline as fallback
-        console.log('Online clock out failed, storing offline:', error);
+        console.log('Online clock out failed, storing offline:', error.message);
         await offlineStorage.addOfflineAction(actionData);
         setPendingSyncCount(prev => prev + 1);
         
@@ -153,7 +169,8 @@ export function useOfflineClockIn() {
             }
           },
           offline: true,
-          fallback: true
+          fallback: true,
+          success: true
         };
       }
     }
@@ -161,7 +178,7 @@ export function useOfflineClockIn() {
 
   const forceSync = useCallback(async () => {
     if (networkStatus.isOnline) {
-      await offlineSync.forcSync();
+      await offlineSync.forceSync();
     }
   }, []);
 
@@ -172,6 +189,6 @@ export function useOfflineClockIn() {
     isOffline,
     pendingSyncCount,
     syncStatus,
-    loading: clockingInOnline || clockingOutOnline || syncStatus === 'syncing'
+    loading: syncStatus === 'syncing'
   };
 }

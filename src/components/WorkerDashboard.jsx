@@ -1,9 +1,10 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useRef, useState, isValidElement, cloneElement } from "react";
-import { useMutation, useQuery } from "@apollo/client";
-import { CLOCK_IN, CLOCK_OUT, LIST_LOCATIONS, ME, MY_SHIFTS } from "@/graphql/operations";
-import { useOfflineClockIn } from "@/hooks/useOfflineClockIn";
-import { Line } from "react-chartjs-2";
+import { useQuery } from "@apollo/client";
+import { LIST_LOCATIONS, ME, MY_SHIFTS } from "@/graphql/operations";
+import { useOfflineClockIn } from '../hooks/useOfflineClockIn';
+import { networkStatus } from '../lib/networkStatus';
+import autoBackgroundTracker from '../lib/autoBackgroundTracking';
 import {
   Chart as ChartJS,
   LineElement,
@@ -14,6 +15,7 @@ import {
   Legend,
   Filler,
 } from "chart.js";
+import { Line } from "react-chartjs-2";
 
 ChartJS.register(LineElement, CategoryScale, LinearScale, PointElement, ChartTooltip, Legend, Filler);
 
@@ -141,7 +143,7 @@ const colorMap = {
 };
 
 // Offline status indicator
-const OfflineStatusBanner = ({ isOffline, pendingSyncCount, syncStatus, onForceSync }) => {
+const OfflineStatusBanner = ({ isOffline, pendingSyncCount, syncStatus }) => {
   if (!isOffline && pendingSyncCount === 0) return null;
 
   return (
@@ -159,15 +161,6 @@ const OfflineStatusBanner = ({ isOffline, pendingSyncCount, syncStatus, onForceS
              pendingSyncCount > 0 ? `${pendingSyncCount} actions pending sync` : 'Online'}
           </span>
         </div>
-        {pendingSyncCount > 0 && !isOffline && (
-          <button
-            onClick={onForceSync}
-            disabled={syncStatus === 'syncing'}
-            className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {syncStatus === 'syncing' ? 'Syncing...' : 'Sync Now'}
-          </button>
-        )}
       </div>
       {isOffline && (
         <p className="text-xs text-orange-600 mt-1">
@@ -238,7 +231,7 @@ const presetNotes = [
 
 const TimeClockCard = ({
   loading,
-  openShift,
+  isOpen,
   pos,
   geoLoading,
   manualNote,
@@ -256,8 +249,8 @@ const TimeClockCard = ({
             placeholder="Add a note (optional)"
             value={manualNote}
             onChange={(e) => setManualNote(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { (openShift ? handleClockOut : handleClockIn)(); } }}
-            disabled={clockingIn || clockingOut || !pos}
+            onKeyDown={(e) => { if (e.key === 'Enter') { (isOpen ? handleClockOut : handleClockIn)(); } }}
+            disabled={clockingIn || clockingOut}
             className="w-full border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
           <div className="flex flex-wrap gap-2 mt-2 justify-center">
@@ -272,24 +265,26 @@ const TimeClockCard = ({
         </div>
         <div className="flex flex-col sm:flex-row justify-center items-center gap-3 w-full">
           <button
-            onClick={handleClockIn}
-            disabled={!!openShift || clockingOut || !pos}
-            className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto h-12 px-6 rounded-md text-white ${(!openShift && pos ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed')}`}
-            title={!pos ? 'Location required' : !openShift ? 'Clock In' : 'Already clocked in'}
+            onClick={() => handleClockIn()}
+            disabled={isOpen || clockingOut}
+className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto h-12 px-6 rounded-md text-white ${!isOpen ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'}`}
+            title={!isOpen ? 'Clock In' : 'Already clocked in'}
           >
-            {!openShift ? <IconCheck className="w-5 h-5"/> : <IconPause className="w-5 h-5"/>}
-            {!openShift ? 'Clock In' : 'Clocked In'}
+            {clockingIn ? <IconSpinner className="w-5 h-5"/> : !isOpen ? <IconCheck className="w-5 h-5"/> : <IconPause className="w-5 h-5"/>}
+{clockingIn ? 'Clocking In...' : !isOpen ? 'Clock In' : 'Clocked In'}
           </button>
           <button
-            onClick={handleClockOut}
-            disabled={!openShift || clockingIn || !pos}
-            className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto h-12 px-6 rounded-md text-white ${(openShift && pos ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-300 cursor-not-allowed')}`}
-            title={!pos ? 'Location required' : openShift ? 'Clock Out' : 'No active shift'}
+            onClick={() => handleClockOut()}
+            disabled={!isOpen || clockingIn || clockingOut}
+            className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto h-12 px-6 rounded-md text-white ${isOpen && !clockingIn && !clockingOut ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-300 cursor-not-allowed'}`}
+            title={isOpen ? 'Clock Out' : 'No active shift'}
           >
-            <IconStop className="w-5 h-5"/>
-            Clock Out
+            {clockingOut ? <IconSpinner className="w-5 h-5"/> : <IconStop className="w-5 h-5"/>}
+{clockingOut ? 'Clocking Out...' : 'Clock Out'}
           </button>
         </div>
+        
+
       </div>
       <div className="flex items-center justify-center text-sm text-gray-500 pt-2 border-t border-gray-100">
         {geoLoading ? (
@@ -569,6 +564,7 @@ export default function WorkerDashboard() {
   // Analytics range state and query
   const [range, setRange] = useState('month'); // day | month | year | custom
   const [customStart, setCustomStart] = useState(null); // YYYY-MM-DD
+
   const getDateRange = useCallback((r, custom) => {
     // Always set end to the end of the current day to include all data for today
     const end = new Date();
@@ -613,7 +609,7 @@ export default function WorkerDashboard() {
 
   // Simple notify helper (replace antd message)
   const notify = useCallback((type, text) => {
-    const fn = type === 'error' ? console.error : console.log;
+    const fn = type === 'error' ? console.error : (type === 'warning' || type === 'warn') ? console.warn : console.log;
     fn(text);
   }, []);
 
@@ -628,18 +624,27 @@ export default function WorkerDashboard() {
     loading: offlineLoading
   } = useOfflineClockIn();
 
-  // Legacy mutations for fallback (kept for compatibility)
-  const [clockInMutation, { loading: clockingInLegacy }] = useMutation(CLOCK_IN);
-  const [clockOutMutation, { loading: clockingOutLegacy }] = useMutation(CLOCK_OUT);
-  
-  const clockingIn = offlineLoading || clockingInLegacy;
-  const clockingOut = offlineLoading || clockingOutLegacy;
+  // Separate loading states for clock in and out
+  const [clockingIn, setClockingIn] = useState(false);
+  const [clockingOut, setClockingOut] = useState(false);
+  // Local override for shift state to support offline/manual sequences
+  const [localShiftOverride, setLocalShiftOverride] = useState(null); // null = follow server, true=open, false=closed
 
   // Derived state
   const activeLoc = useMemo(() => (locData?.locations?.[0]) || null, [locData]);
   const openShift = useMemo(() => (shiftsData?.shifts || []).find(s => !s.clockOutAt) || null, [shiftsData]);
   const recentShifts = useMemo(() => (shiftsData?.shifts || []).slice(0, 10), [shiftsData]);
   const loading = meLoading || locLoading || shiftsLoading;
+  // Effective open state using local override when present
+  const isOpen = useMemo(() => localShiftOverride !== null ? localShiftOverride : !!openShift, [localShiftOverride, openShift]);
+
+  // Initialize automatic background tracking with admin work locations
+  useEffect(() => {
+    if (locData?.locations && locData.locations.length > 0) {
+      autoBackgroundTracker.setWorkLocations(locData.locations);
+      autoBackgroundTracker.startAutoTracking();
+    }
+  }, [locData?.locations]);
   const [metric, setMetric] = useState('hours'); // 'hours' | 'entries'
 
   // Location tracking state
@@ -651,6 +656,8 @@ export default function WorkerDashboard() {
   const [distanceFromWork, setDistanceFromWork] = useState(null);
   const lastStatusRef = useRef(null);
   const locationChecked = useRef(false);
+  const [pendingManualConfirm, setPendingManualConfirm] = useState(null); // { note }
+  const [showOutsidePerimeterBanner, setShowOutsidePerimeterBanner] = useState(false);
 
   // Check location permissions on mount
   useEffect(() => {
@@ -723,77 +730,134 @@ export default function WorkerDashboard() {
       lastStatusRef.current = inside ? "inside" : "outside";
 
       if (inside !== (prev === "inside")) {
-        if (inside && !openShift) {
+        if (inside && !isOpen) {
           handleClockIn(`Auto clock-in (${formatDistance(distance)} from work)`);
-        } else if (!inside && openShift) {
+        } else if (!inside && isOpen) {
           handleClockOut(`Auto clock-out (${formatDistance(distance)} from work)`);
         }
       }
     }
-  }, [pos, activeLoc, openShift]);
+  }, [pos, activeLoc, isOpen]);
+
+  // Clear local override once server state matches it (post-sync)
+  useEffect(() => {
+    if (localShiftOverride === null) return;
+    if ((localShiftOverride === true && !!openShift) || (localShiftOverride === false && !openShift)) {
+      setLocalShiftOverride(null);
+    }
+  }, [openShift, localShiftOverride]);
 
   // Clock in/out handlers using offline-capable functions
   const handleClockIn = useCallback(async (note = manualNote) => {
-    if (!pos) {
-      notify('error', 'Location required for clock in');
+    // If we have location and are outside the permitted area, ask for confirmation to use manual override
+    const outside = !!(pos && activeLoc && distanceFromWork != null && distanceFromWork > (activeLoc.radiusKm + 0.05));
+    if (outside) {
+      setPendingManualConfirm({ note: note || '' });
       return;
     }
 
+    setClockingIn(true);
     try {
       const result = await offlineClockIn({
         note,
-        lat: pos.lat,
-        lng: pos.lng,
-        manualOverride: false
+        lat: pos?.lat || 0,
+        lng: pos?.lng || 0,
+        manualOverride: !pos
       });
-
-      if (result.offline) {
-        notify('success', result.fallback ? 
-          'Clock in saved offline (will sync when online)' : 
-          'Clocked in offline (will sync when online)'
-        );
-      } else {
-        notify('success', 'Successfully clocked in');
-        refetchShifts();
-      }
       
-      setManualNote('');
+      if (result.success || result.data) {
+        // Reflect local state immediately for both online and offline/manual flows
+        setLocalShiftOverride(true);
+        notify('success', result.offline ? 
+          'Clock in saved offline (will sync when online)' : 
+          'Successfully clocked in'
+        );
+        if (!result.offline) {
+          refetchShifts();
+        }
+      } else {
+        notify('error', result.error || 'Failed to clock in');
+      }
     } catch (error) {
       console.error('Clock in error:', error);
-      notify('error', `Failed to clock in: ${error.message}`);
+      if (error?.message && /Outside permitted location perimeter/i.test(error.message)) {
+        setPendingManualConfirm({ note: note || '' });
+        notify('warning', 'You are outside the permitted location. You can clock in manually if approved.');
+      } else {
+        notify('error', 'Failed to clock in');
+      }
+    } finally {
+      setClockingIn(false);
     }
-  }, [pos, manualNote, offlineClockIn, notify, refetchShifts]);
+  }, [pos, manualNote, offlineClockIn, notify, refetchShifts, activeLoc, distanceFromWork]);
+
+  const confirmManualClockIn = useCallback(async () => {
+    if (!pendingManualConfirm) return;
+    setClockingIn(true);
+    try {
+      const note = pendingManualConfirm.note || '';
+      const result = await offlineClockIn({
+        note,
+        lat: pos?.lat || 0,
+        lng: pos?.lng || 0,
+        manualOverride: true
+      });
+      if (result.success || result.data) {
+        // Reflect local state immediately for both online and offline/manual flows
+        setLocalShiftOverride(true);
+        setShowOutsidePerimeterBanner(true);
+        notify('warning', 'Manual clock-in recorded outside location. Hours may not be counted without proper location presence.');
+        if (!result.offline) {
+          refetchShifts();
+        }
+        setPendingManualConfirm(null);
+      } else {
+        notify('error', result.error || 'Failed to clock in manually');
+      }
+    } catch (error) {
+      console.error('Manual clock in error:', error);
+      notify('error', 'Failed to clock in manually');
+    } finally {
+      setClockingIn(false);
+    }
+  }, [pendingManualConfirm, offlineClockIn, pos, notify, refetchShifts]);
 
   const handleClockOut = useCallback(async (note = manualNote) => {
-    if (!pos) {
-      notify('error', 'Location required for clock out');
+    if (!isOpen) {
+      notify('error', 'No active shift to clock out from');
       return;
     }
-
+    
+    setClockingOut(true);
     try {
       const result = await offlineClockOut({
-        note,
-        lat: pos.lat,
-        lng: pos.lng,
-        manualOverride: false
+        note: note || '',
+        lat: pos?.lat || 0,
+        lng: pos?.lng || 0,
+        manualOverride: true  // Always use manual override for manual clock out
       });
 
-      if (result.offline) {
-        notify('success', result.fallback ? 
+      if (result && (result.success || result.data)) {
+        // Reflect local state immediately for both online and offline/manual flows
+        setLocalShiftOverride(false);
+        notify('success', result.offline ? 
           'Clock out saved offline (will sync when online)' : 
-          'Clocked out offline (will sync when online)'
+          'Successfully clocked out'
         );
+        setManualNote('');
+        if (!result.offline) {
+          await refetchShifts();
+        }
       } else {
-        notify('success', 'Successfully clocked out');
-        refetchShifts();
+        notify('error', result?.error || 'Failed to clock out');
       }
-      
-      setManualNote('');
     } catch (error) {
       console.error('Clock out error:', error);
       notify('error', `Failed to clock out: ${error.message}`);
+    } finally {
+      setClockingOut(false);
     }
-  }, [pos, manualNote, offlineClockOut, notify, refetchShifts]);
+  }, [pos, manualNote, offlineClockOut, notify, refetchShifts, isOpen]);
 
   // Calculate hours for a shift (exclude ongoing)
   const calculateShiftHours = (shift) => {
@@ -1015,23 +1079,7 @@ export default function WorkerDashboard() {
     );
   }
 
-  // Render error state if location access is blocked
-  if (geoError && !pos) {
-    return (
-      <div className="p-6">
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <div className="flex items-start gap-3">
-            <IconInfo className="w-5 h-5 text-red-600 mt-0.5" />
-            <div>
-              <div className="font-medium text-red-700">Location Access Required</div>
-              <div className="text-sm text-red-700/90">Please enable location services to use the clock in/out features.</div>
-              <div className="text-sm text-red-700/90 mt-2">You can still view other dashboard features, but clock in/out functionality is disabled until location access is granted.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Note: location errors no longer block UI; we show a non-blocking banner instead.
 
   // Show loading state while checking location permissions
   if (!locationChecked.current) {
@@ -1045,119 +1093,199 @@ export default function WorkerDashboard() {
     );
   }
 
+  // Render loading state
+  if (loading) {
+    return (
+      <div className="p-6 space-y-3">
+        <div className="h-5 bg-gray-200 rounded animate-pulse w-1/3" />
+        <div className="h-40 bg-gray-100 rounded animate-pulse" />
+        <div className="h-64 bg-gray-100 rounded animate-pulse" />
+      </div>
+    );
+  }
+
   return (
+    <div className="p-6 max-w-7xl mx-auto">
+      {/* Offline Status Banner */}
+      <OfflineStatusBanner 
+        isOffline={isOffline}
+        pendingSyncCount={pendingSyncCount}
+        syncStatus={syncStatus}
+      />
 
-// Render loading state
-if (loading) {
-  return (
-    <div className="p-6 space-y-3">
-      <div className="h-5 bg-gray-200 rounded animate-pulse w-1/3" />
-      <div className="h-40 bg-gray-100 rounded animate-pulse" />
-      <div className="h-64 bg-gray-100 rounded animate-pulse" />
-    </div>
-  );
-}
-                value={openShift ? formatDuration(currentShiftDuration * 60) : "Ready"}
-                icon={<IconClock />}
-                color={openShift ? "blue" : "green"}
-              />
-            </div>
+      {/* Non-blocking Location Warning */}
+      {(!pos || geoError) && (
+        <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+          <div className="flex items-start gap-3">
+            <IconInfo className="w-5 h-5 text-yellow-600 mt-0.5" />
             <div>
-              <StatCard
-                title="Total Hours (Range)"
-                value={formatDuration(periodHours * 60)}
-                icon={<IconClock />}
-                color="blue"
-              />
-            </div>
-            <div>
-              <StatCard
-                title="Total Shifts (Range)"
-                value={periodEntries}
-                suffix="shifts"
-                icon={<IconHistory />}
-                color="purple"
-              />
-            </div>
-          </StatsGrid>
-
-          <TimeClockCard
-            loading={loading}
-            openShift={openShift}
-            pos={pos}
-            geoLoading={geoLoading}
-            manualNote={manualNote}
-            setManualNote={setManualNote}
-            handleClockIn={handleClockIn}
-            handleClockOut={handleClockOut}
-            clockingIn={clockingIn}
-            clockingOut={clockingOut}
-          />
-
-          {/* My Activity Chart */}
-          <StyledCard 
-            title="My Activity" 
-            extra={(
-              <div className="flex items-center gap-2">
-                <div className="flex items-center bg-gray-100 rounded-md p-0.5">
-                  <button
-                    onClick={() => setMetric('hours')}
-                    className={`px-2 py-1 text-xs rounded ${metric === 'hours' ? 'bg-white shadow text-gray-800' : 'text-gray-600'}`}
-                  >Hours</button>
-                  <button
-                    onClick={() => setMetric('entries')}
-                    className={`px-2 py-1 text-xs rounded ${metric === 'entries' ? 'bg-white shadow text-gray-800' : 'text-gray-600'}`}
-                  >Entries</button>
-                </div>
-                <div className="flex items-center gap-1">
-                  <select
-                    className="border rounded px-2 py-1 text-xs bg-white"
-                    value={range}
-                    onChange={(e) => setRange(e.target.value)}
-                    title="Select range"
-                  >
-                    <option value="day">Day</option>
-                    <option value="month">Month</option>
-                    <option value="year">Year</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                  {range === 'custom' && (
-                    <input
-                      type="date"
-                      className="border rounded px-2 py-1 text-xs"
-                      max={new Date().toISOString().split('T')[0]}
-                      value={customStart || ''}
-                      onChange={(e) => setCustomStart(e.target.value || null)}
-                    />
-                  )}
-                </div>
+              <div className="font-medium text-yellow-800">Limited location access</div>
+              <div className="text-sm text-yellow-700">
+                You can still clock in/out. When location isn't available, actions will use manual override and sync normally when online.
               </div>
-            )}
-            className="mb-8"
-            gradient
-          >
-            <div className="h-64">
-              {processedAnalytics.length > 0 ? (
-                <Line data={workerChart} options={chartOptions} />
-              ) : (
-                <div className="h-full flex items-center justify-center text-gray-500">No data in the selected range</div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Outside Perimeter Warning (after manual override) */}
+      {showOutsidePerimeterBanner && (
+        <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+          <div className="flex items-start gap-3">
+            <IconInfo className="w-5 h-5 text-yellow-600 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-medium text-yellow-800">Manual clock-in outside work area</div>
+              <div className="text-sm text-yellow-700">
+                Hours may not be counted without being within the permitted location perimeter.
+              </div>
+            </div>
+            <button
+              onClick={() => setShowOutsidePerimeterBanner(false)}
+              className="text-yellow-700 text-sm font-medium hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Status Header */}
+      <StatusHeader openShift={openShift} formatTime={formatTime} currentTimeText={currentTimeText} />
+
+      {/* Stats Grid */}
+      <StatsGrid>
+        <LocationStatusCard inside={distanceFromWork !== null && distanceFromWork <= (activeLoc?.radiusKm || 0) + 0.05} />
+        <div>
+          <StatCard
+            title="Current Shift"
+            value={openShift ? formatDuration(currentShiftDuration * 60) : "Ready"}
+            icon={<IconClock />}
+            color={openShift ? "blue" : "green"}
+          />
+        </div>
+        <div>
+          <StatCard
+            title="Total Hours (Range)"
+            value={formatDuration(periodHours * 60)}
+            icon={<IconClock />}
+            color="blue"
+          />
+        </div>
+      </StatsGrid>
+
+      {/* Time Clock */}
+      <TimeClockCard
+        loading={loading}
+        isOpen={isOpen}
+        pos={pos}
+        geoLoading={geoLoading}
+        manualNote={manualNote}
+        setManualNote={setManualNote}
+        handleClockIn={handleClockIn}
+        handleClockOut={handleClockOut}
+        clockingIn={clockingIn}
+        clockingOut={clockingOut}
+      />
+
+      {/* Analytics Chart */}
+      <StyledCard
+        title="Work Analytics"
+        extra={
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border border-gray-200 overflow-hidden">
+              <button
+                className={`px-3 py-1 text-xs ${
+                  metric === 'hours' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+                onClick={() => setMetric('hours')}
+              >Hours</button>
+              <button
+                className={`px-3 py-1 text-xs ${
+                  metric === 'entries' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+                onClick={() => setMetric('entries')}
+              >Entries</button>
+            </div>
+            <div className="flex items-center gap-1">
+              <select
+                className="border rounded px-2 py-1 text-xs bg-white"
+                value={range}
+                onChange={(e) => setRange(e.target.value)}
+                title="Select range"
+              >
+                <option value="day">Day</option>
+                <option value="month">Month</option>
+                <option value="year">Year</option>
+                <option value="custom">Custom</option>
+              </select>
+              {range === 'custom' && (
+                <input
+                  type="date"
+                  className="border rounded px-2 py-1 text-xs"
+                  max={new Date().toISOString().split('T')[0]}
+                  value={customStart || ''}
+                  onChange={(e) => setCustomStart(e.target.value || null)}
+                />
               )}
             </div>
-            <div className="mt-2 text-xs text-gray-500 text-right">
-              Showing {processedAnalytics.length} days from {dateRange.start.toLocaleDateString()} to {dateRange.end.toLocaleDateString()}
-            </div>
-          </StyledCard>
-
-          {/* Shift History */}
-          <RecentShiftsTable loading={loading} data={recentShifts} />
-
-          {/* Work Location Info */}
-          {activeLoc && (
-            <WorkLocationCard activeLoc={activeLoc} />
+          </div>
+        }
+        className="mb-8"
+        gradient
+      >
+        <div className="h-64">
+          {processedAnalytics.length > 0 ? (
+            <Line data={workerChart} options={chartOptions} />
+          ) : (
+            <div className="h-full flex items-center justify-center text-gray-500">No data in the selected range</div>
           )}
+        </div>
+        <div className="mt-2 text-xs text-gray-500 text-right">
+          Showing {processedAnalytics.length} days from {dateRange.start.toLocaleDateString()} to {dateRange.end.toLocaleDateString()}
+        </div>
+      </StyledCard>
 
-          {/* Location Tracking Status */}
-          <TrackingStatusBar pos={pos} />
+      {/* Shift History */}
+      <RecentShiftsTable loading={loading} data={recentShifts} />
+
+      {/* Work Location Info */}
+      {activeLoc && (
+        <WorkLocationCard activeLoc={activeLoc} />
+      )}
+
+
+      {/* Location Tracking Status */}
+      <TrackingStatusBar pos={pos} />
+
+      {/* Confirm Manual Clock-In Modal */}
+      {pendingManualConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-start gap-3">
+              <IconInfo className="w-5 h-5 text-yellow-600 mt-0.5" />
+              <div>
+                <div className="font-semibold text-gray-900">You are outside the permitted location</div>
+                <p className="text-sm text-gray-600 mt-1">
+                  Clocking in now will use manual override. Hours may not be counted without proper location presence. Do you want to proceed?
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setPendingManualConfirm(null)}
+                className="px-4 py-2 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmManualClockIn}
+                disabled={clockingIn}
+                className="px-4 py-2 text-sm rounded-md bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-60"
+              >
+                {clockingIn ? 'Clocking In...' : 'Clock In Manually'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

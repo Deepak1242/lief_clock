@@ -67,9 +67,17 @@ class OfflineStorageManager {
   async addOfflineAction(action) {
     await this.init();
     
+    // Create a clean, serializable copy of the action data
     const actionData = {
-      ...action,
-      timestamp: new Date().toISOString(),
+      type: action.type,
+      data: {
+        note: action.data?.note || '',
+        lat: action.data?.lat || 0,
+        lng: action.data?.lng || 0,
+        manualOverride: action.data?.manualOverride || false,
+        background: action.data?.background || false
+      },
+      timestamp: action.timestamp || new Date().toISOString(),
       synced: false,
       retryCount: 0
     };
@@ -97,13 +105,13 @@ class OfflineStorageManager {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['offlineActions'], 'readonly');
       const store = transaction.objectStore('offlineActions');
-      const index = store.index('synced');
-      const request = index.getAll(false);
+      const request = store.getAll();
 
       request.onsuccess = () => {
-        const actions = request.result.sort((a, b) => 
-          new Date(a.timestamp) - new Date(b.timestamp)
-        );
+        // Filter for unsynced actions (synced === false or undefined)
+        const actions = request.result
+          .filter(action => !action.synced)
+          .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
         resolve(actions);
       };
 
@@ -262,15 +270,18 @@ class OfflineStorageManager {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['offlineActions'], 'readwrite');
       const store = transaction.objectStore('offlineActions');
-      const index = store.index('synced');
-      const request = index.openCursor(true); // Only synced actions
+      const request = store.openCursor();
 
       let deletedCount = 0;
       request.onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor) {
-          cursor.delete();
-          deletedCount++;
+          const action = cursor.value;
+          // Only delete synced actions
+          if (action.synced === true) {
+            cursor.delete();
+            deletedCount++;
+          }
           cursor.continue();
         } else {
           console.log(`Cleared ${deletedCount} synced actions`);
