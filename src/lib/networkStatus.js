@@ -36,11 +36,11 @@ class NetworkStatusManager {
   }
 
   async triggerAutoSync() {
-    // Import offlineStorage dynamically to avoid circular dependencies
+    // Import offlineSync dynamically to avoid circular dependencies
     try {
-      const { offlineStorage } = await import('./offlineStorage');
+      const { offlineSync } = await import('./offlineSync');
       console.log('Auto-syncing offline actions...');
-      await offlineStorage.syncOfflineActions();
+      await offlineSync.forceSync();
     } catch (error) {
       console.error('Auto-sync failed:', error);
     }

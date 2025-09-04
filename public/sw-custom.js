@@ -1,7 +1,4 @@
-/**
- * Custom Service Worker for Background Location and Sync
- * Handles background sync, notifications, and location-based actions
- */
+
 
 // Import Workbox if available
 importScripts('https://storage.googleapis.com/workbox-cdn/releases/6.6.0/workbox-sw.js');

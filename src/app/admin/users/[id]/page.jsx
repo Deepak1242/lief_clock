@@ -86,7 +86,7 @@ export default function UserAnalyticsPage() {
     notifyOnNetworkStatusChange: true,
   });
 
-  // Remove rebuild analytics - graphs will auto-refresh when filters change
+
 
   // Helpers
   const formatHoursMin = (hours) => {
@@ -99,7 +99,7 @@ export default function UserAnalyticsPage() {
 
   // Calculate hours from shift data
   const calculateShiftHours = (shift) => {
-    if (!shift.clockOutAt) return 0; // Ongoing shifts don't count toward analytics
+    if (!shift.clockOutAt) return 0; 
     const start = new Date(shift.clockInAt);
     const end = new Date(shift.clockOutAt);
     return Math.max(0, (end - start) / 3600000); // Convert to hours
